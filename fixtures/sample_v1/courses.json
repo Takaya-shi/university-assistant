@@ -1,0 +1,25 @@
+[
+  {
+    "courses": [
+      {
+        "id": "100000000001",
+        "name": "サンプル科目A",
+        "section": "2026後期（架空）",
+        "courseState": "ACTIVE",
+        "alternateLink": "https://classroom.google.com/c/SAMPLE1"
+      }
+    ],
+    "nextPageToken": "1"
+  },
+  {
+    "courses": [
+      {
+        "id": "100000000002",
+        "name": "サンプル科目B（対象外）",
+        "section": "2026後期（架空）",
+        "courseState": "ACTIVE",
+        "alternateLink": "https://classroom.google.com/c/SAMPLE2"
+      }
+    ]
+  }
+]

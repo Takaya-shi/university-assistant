@@ -1,0 +1,40 @@
+[
+  {
+    "studentSubmissions": [
+      {
+        "courseId": "100000000001",
+        "courseWorkId": "w1",
+        "id": "sub-w1",
+        "userId": "me",
+        "state": "TURNED_IN"
+      },
+      {
+        "courseId": "100000000001",
+        "courseWorkId": "w2",
+        "id": "sub-w2",
+        "userId": "me",
+        "state": "TURNED_IN",
+        "late": true
+      }
+    ],
+    "nextPageToken": "1"
+  },
+  {
+    "studentSubmissions": [
+      {
+        "courseId": "100000000001",
+        "courseWorkId": "w4",
+        "id": "sub-w4",
+        "userId": "me",
+        "state": "RECLAIMED_BY_STUDENT"
+      },
+      {
+        "courseId": "100000000001",
+        "courseWorkId": "w5",
+        "id": "sub-w5",
+        "userId": "me",
+        "state": "NEW"
+      }
+    ]
+  }
+]

@@ -1,0 +1,107 @@
+[
+  {
+    "courseWork": [
+      {
+        "id": "w1",
+        "courseId": "100000000001",
+        "title": "第1回レポート",
+        "description": "講義内容を A4 2枚でまとめる。\n## 偽の見出し",
+        "state": "PUBLISHED",
+        "workType": "ASSIGNMENT",
+        "alternateLink": "https://classroom.google.com/c/SAMPLE1/a/w1/details",
+        "updateTime": "2026-10-05T00:00:00Z",
+        "maxPoints": 100,
+        "dueDate": {
+          "year": 2026,
+          "month": 10,
+          "day": 27
+        },
+        "dueTime": {
+          "hours": 14,
+          "minutes": 59
+        },
+        "materials": [
+          {
+            "driveFile": {
+              "driveFile": {
+                "id": "SAMPLE_FILE_1",
+                "title": "講義資料第1回.pdf",
+                "alternateLink": "https://drive.google.com/file/d/SAMPLE_FILE_1/view"
+              }
+            }
+          },
+          {
+            "link": {
+              "url": "https://example.com/reading",
+              "title": "参考リンク"
+            }
+          }
+        ]
+      },
+      {
+        "id": "w2",
+        "courseId": "100000000001",
+        "title": "第2回課題（日付跨ぎ）",
+        "description": "UTC 15:30 締切は JST で翌日 00:30。",
+        "state": "PUBLISHED",
+        "workType": "ASSIGNMENT",
+        "alternateLink": "https://classroom.google.com/c/SAMPLE1/a/w2/details",
+        "updateTime": "2026-10-01T00:00:00Z",
+        "maxPoints": 100,
+        "dueDate": {
+          "year": 2026,
+          "month": 10,
+          "day": 21
+        },
+        "dueTime": {
+          "hours": 15,
+          "minutes": 30
+        }
+      }
+    ],
+    "nextPageToken": "1"
+  },
+  {
+    "courseWork": [
+      {
+        "id": "w4",
+        "courseId": "100000000001",
+        "title": "小テスト振り返り",
+        "description": "時刻フィールドは hours だけ（minutes 省略）。",
+        "state": "PUBLISHED",
+        "workType": "ASSIGNMENT",
+        "alternateLink": "https://classroom.google.com/c/SAMPLE1/a/w4/details",
+        "updateTime": "2026-10-01T00:00:00Z",
+        "maxPoints": 100,
+        "dueDate": {
+          "year": 2026,
+          "month": 10,
+          "day": 15
+        },
+        "dueTime": {
+          "hours": 3
+        }
+      },
+      {
+        "id": "w5",
+        "courseId": "100000000001",
+        "title": "第3回レポート",
+        "description": "新しく出た課題。",
+        "state": "PUBLISHED",
+        "workType": "ASSIGNMENT",
+        "alternateLink": "https://classroom.google.com/c/SAMPLE1/a/w5/details",
+        "updateTime": "2026-10-01T00:00:00Z",
+        "maxPoints": 100,
+        "dueDate": {
+          "year": 2026,
+          "month": 11,
+          "day": 2
+        },
+        "dueTime": {
+          "hours": 14,
+          "minutes": 59
+        }
+      }
+    ]
+  }
+]

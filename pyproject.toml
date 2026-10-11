@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "university-sync"
+version = "0.1.0"
+description = "Classroom・学校メールの課題を Obsidian Vault の大学タスクへ同期する CLI（Phase 0: サンプル取得元のみ）"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+# Phase 1 以降で Google 公式クライアントを使う。Phase 0 は標準ライブラリのみで動く。
+google = [
+  "google-api-python-client",
+  "google-auth-oauthlib",
+  "keyring",
+]
+
+[project.scripts]
+university-sync = "university_sync.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

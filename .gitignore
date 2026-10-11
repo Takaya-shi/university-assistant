@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+build/
+dist/
+# 実設定・資格情報・状態はリポジトリに入れない
+config.toml
+client_secret*.json
+token*.json
+*.sqlite3
+.test-vault/
+.test-state/

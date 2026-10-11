@@ -1,0 +1,53 @@
+# university-sync 設定の雛形。実設定は ~/.config/university-sync/config.toml に置く（リポジトリに入れない）。
+# 空欄は「未確定」。推測で埋めない。`university-sync doctor` で未入力項目が一覧になる。
+
+[vault]
+path = "~/path/to/ObsidianVault"   # Obsidian Vault の場所
+tasks_note = "Areas/タスク管理/大学.md"
+university_root = "Areas/University"
+review_inbox = "Inbox/大学_自動取込"
+protected_paths = ["Note/", "タスク置き場.md"]
+
+[state]
+# Vault・Drive・ソース管理の外。OAuth トークンはここにも置かず macOS キーチェーンへ
+dir = "~/Library/Application Support/university-sync"
+
+[source]
+mode = "sample"            # sample（Phase 0）/ google（Phase 1 以降）
+sample_dir = "fixtures/sample_v1"   # この設定ファイルからの相対パスでも可
+
+[google]
+client_secrets_path = ""   # OAuth クライアント（デスクトップアプリ）の JSON。Vault 外に置く
+
+[accounts.school]
+email = ""                 # 学校アカウントの完全なメールアドレス
+mail_backend = ""          # "gmail" など。確認してから入れる
+
+[accounts.storage]
+email = ""                 # 保存先 Drive のアカウントの完全なメールアドレス
+drive_folder_id = ""       # 「大学資料」フォルダの ID
+
+# 対象授業。`university-sync courses` の結果から選んで追記する
+# [[courses]]
+# course_id = ""
+# course_key = ""          # 省略時は course_id
+# name = ""                # タスク行に出す科目名
+# vault_dir = ""           # 例: Areas/University/論理回路学（既存フォルダは移動・改名しない）
+# term = ""                # 例: 2026後期
+
+[mail]
+# initial_range_days = 30  # 初回取得範囲（日数）。未確定
+query = ""                 # Gmail 検索条件。未確定
+
+[schedule]
+daily_time = ""            # 初期候補 07:00 JST。未確定
+
+[notify]
+channel = ""               # 未確定。決まるまで外部送信しない
+approaching_days = []      # 例: [3, 1]。未確定
+
+[llm]
+mode = ""                  # Claude の実行方式。未確定
+
+[sync]
+auto_complete_on_turned_in = true   # 学校側 TURNED_IN で管理タスクを完了にする

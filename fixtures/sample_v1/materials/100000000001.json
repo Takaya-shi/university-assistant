@@ -1,0 +1,42 @@
+[
+  {
+    "courseWorkMaterial": [
+      {
+        "id": "m1",
+        "title": "第1回 講義スライド",
+        "creationTime": "2026-10-01T01:00:00Z",
+        "alternateLink": "https://classroom.google.com/c/SAMPLE1/m/m1/details",
+        "materials": [
+          {
+            "driveFile": {
+              "driveFile": {
+                "id": "F1",
+                "title": "slide01.pdf",
+                "alternateLink": "https://drive.google.com/file/d/F1/view",
+                "thumbnailUrl": "https://t?sig=1"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "nextPageToken": "1"
+  },
+  {
+    "courseWorkMaterial": [
+      {
+        "id": "m2",
+        "title": "参考 | 文献",
+        "creationTime": "2026-10-02T16:00:00Z",
+        "materials": [
+          {
+            "link": {
+              "url": "https://example.com/ref",
+              "title": "参考[1]"
+            }
+          }
+        ]
+      }
+    ]
+  }
+]
