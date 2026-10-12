@@ -341,7 +341,8 @@ def _apply_upsert(cfg: Config, op: dict, store: StateStore, writer: VaultWriter,
             elif cur == "RECLAIMED_BY_STUDENT" and m.group("status") == "x":
                 status = " "
         lines[idx] = update_task_line(lines[idx], desc=None if keep_desc else desc, due_date=a.due_date,
-                                      status=status, done_date=today)
+                                      status=status, done_date=today,
+                                      prev_due=row["due_at"][:10] if row and row["due_at"] else None)
         new_tasks = "\n".join(lines)
         task_desc_written = row["task_desc"] if keep_desc else desc
     writer.write(cfg.tasks_note, new_tasks, orig_tasks)

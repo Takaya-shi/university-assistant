@@ -162,12 +162,18 @@ def render_task_line(status: str, desc: str, assignment_id: str, due_date: str |
     return line
 
 
-def update_task_line(line: str, *, desc: str | None, due_date: str | None, status: str | None, done_date: str | None) -> str:
+def update_task_line(line: str, *, desc: str | None, due_date: str | None, status: str | None, done_date: str | None,
+                     prev_due: str | None = None) -> str:
     """既存行のうち、管理部分（説明・📅・チェック状態）だけを差し替える。
     本人が足した ⏳ や優先度、タグはそのまま残す。desc=None なら説明を変えない。"""
     m = TASK_RE.match(line)
     assert m
-    rest = DUE_RE.sub("", m.group("rest"))
+    rest = m.group("rest")
+    current = re.search(r"📅 (\d{4}-\d{2}-\d{2})", rest)
+    # 学校側に締切が無いときは、本人が手で付けた 📅（資料にだけ書かれた締切など）を残す。
+    # 前回同期が書いた日付（prev_due）なら、学校側で取り消されたものとして消す
+    if due_date or (current and current.group(1) == prev_due):
+        rest = DUE_RE.sub("", rest)
     if due_date:
         if "#university" in rest:
             rest = rest.replace("#university", f"#university 📅 {due_date}", 1)

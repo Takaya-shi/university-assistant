@@ -423,10 +423,18 @@ class Phase4Tests(unittest.TestCase):
         st.close()
 
 
+class ManualDueTests(unittest.TestCase):
+    def test_manual_due_kept_when_school_has_none(self):
+        line = "- [ ] 説明 <!-- university-sync:id=ua-0123456789 --> #university 📅 2026-10-17"
+        self.assertIn("📅 2026-10-17", update_task_line(line, desc="新", due_date=None, status=None, done_date=None))
+        self.assertIn("📅 2026-10-20", update_task_line(line, desc="新", due_date="2026-10-20", status=None, done_date=None))
+        self.assertNotIn("📅 2026-10-17", update_task_line(line, desc="新", due_date="2026-10-20", status=None, done_date=None))
+
+
 class TaskLineTests(unittest.TestCase):
     def test_update_keeps_unknown_fields(self):
         line = "- [ ] 説明 <!-- university-sync:id=ua-0123456789 --> #university 📅 2026-10-20 ⏳ 2026-10-18 🔼"
-        out = update_task_line(line, desc="新しい説明", due_date=None, status=None, done_date=None)
+        out = update_task_line(line, desc="新しい説明", due_date=None, status=None, done_date=None, prev_due="2026-10-20")
         self.assertEqual(out, "- [ ] 新しい説明 <!-- university-sync:id=ua-0123456789 --> #university ⏳ 2026-10-18 🔼")
         self.assertEqual(find_task([out], "ua-0123456789"), 0)
 
