@@ -61,14 +61,14 @@ class CalendarReport:
 class GoogleCalendar:
     """保存先アカウントのカレンダー 1 つだけを扱う薄い包み。"""
 
-    def __init__(self, cfg):
+    def __init__(self, cfg, calendar_id: str | None = None):
         from googleapiclient.discovery import build
 
         from .auth import load_credentials
 
         creds, self.account_id, self.email = load_credentials(cfg, "storage", SCOPES)
         self.events = build("calendar", "v3", credentials=creds, cache_discovery=False).events()
-        self.calendar_id = cfg.calendar_id
+        self.calendar_id = calendar_id or cfg.calendar_id
 
     def _exec(self, request, what: str):
         from googleapiclient.errors import HttpError
@@ -464,8 +464,8 @@ def sync_calendar(cfg, store, cal, *, dry_run: bool, now: datetime | None = None
             _reconcile(cfg, cal, trecs, report, key=item.key, label=item.title, want=want, may_create=may,
                        prop=TASK_PROP, dry_run=dry_run, external=lambda item=item: _external_same(cal, item))
         for rec in store.calendar_tasks():
-            if rec["task_key"].startswith("slot:"):
-                continue
+            if not rec["task_key"].startswith(("txt:", "aid:")):
+                continue  # 見込みの締切・試験は別の段で扱う
             if rec["task_key"] not in current:  # 行が消えた・書き換えられた・学校側に締切が付いた
                 _reconcile(cfg, cal, trecs, report, key=rec["task_key"], label=rec["title"] or rec["task_key"],
                            want=None, may_create=False, prop=TASK_PROP, dry_run=dry_run)

@@ -50,6 +50,7 @@ class Plan:
     mail: object = None  # mailsync.MailReport（メール未設定なら None）
     copy: object = None  # materials.CopyReport（資料コピー未設定なら None）
     calendar: object = None  # gcalendar.CalendarReport（締切カレンダー未設定なら None）
+    exams: object = None  # exams.ExamReport（締切カレンダー未設定なら None）
 
     def summary(self) -> dict:
         kinds: dict[str, int] = {}
@@ -419,8 +420,19 @@ def _run_calendar(cfg: Config, store: StateStore, writer: VaultWriter, calendar_
     return sync_calendar(cfg, store, cal, dry_run=dry_run, tasks_text=writer.read(cfg.tasks_note))
 
 
+def _run_exams(cfg: Config, store: StateStore, collector, exam_factory, dry_run: bool):
+    """試験日程を締切カレンダーへ入れ、重なる授業の回を消す段。失敗しても他の同期は残す。"""
+    from .exams import ExamReport, sync_exams
+
+    try:
+        cal, class_cal, llm = exam_factory(store)
+    except CollectorError as e:
+        return ExamReport(ok=False, detail=str(e))
+    return sync_exams(cfg, store, cal, class_cal, collector, llm, dry_run=dry_run)
+
+
 def run(cfg: Config, collector: ClassroomCollector, *, dry_run: bool, mail_factory=None,
-        copy_factory=None, calendar_factory=None) -> tuple[Plan, dict | None]:
+        copy_factory=None, calendar_factory=None, exam_factory=None) -> tuple[Plan, dict | None]:
     if cfg.source_mode == "sample" and not dry_run and not cfg.is_test_vault:
         raise SyncBlocked("サンプル取得元で本番 Vault へは書き込まない。テスト用 Vault（目印ファイル付き）を指定するか --dry-run を使う")
     if cfg.source_mode == "google" and not dry_run and not cfg.write_enabled and not cfg.is_test_vault:
@@ -436,6 +448,8 @@ def run(cfg: Config, collector: ClassroomCollector, *, dry_run: bool, mail_facto
                 plan.mail = _run_mail(cfg, store, mail_factory, dry_run=True)
             if calendar_factory:  # 今回の取得結果を適用する前の状態で数える
                 plan.calendar = _run_calendar(cfg, store, VaultWriter(guard, None), calendar_factory, dry_run=True)
+            if exam_factory:
+                plan.exams = _run_exams(cfg, store, collector, exam_factory, dry_run=True)
             return plan, None
         finally:
             store.close()
@@ -476,6 +490,15 @@ def run(cfg: Config, collector: ClassroomCollector, *, dry_run: bool, mail_facto
                 if not c.ok:
                     plan.sources.append(("calendar.deadlines", False, c.detail))
                 for r in c.reviews:
+                    store.add_review(*r, iso_now())
+            if exam_factory and not plan.fetch_failed:  # メールの段で抽出した候補も使うので、その後に回す
+                x = plan.exams = _run_exams(cfg, store, collector, exam_factory, dry_run=False)
+                store.set_source_status("calendar.exams", x.ok, iso_now(),
+                                        x.detail or f"新しく見つけた試験 {x.found} 件・登録 {x.calendar.created} 件・"
+                                                    f"更新 {x.calendar.updated} 件・授業の回を削除 {len(x.classes_removed)} 件")
+                if not x.ok:
+                    plan.sources.append(("calendar.exams", False, x.detail))
+                for r in x.reviews:
                     store.add_review(*r, iso_now())
             failed = plan.fetch_failed
             status = "failed" if failed else ("partial" if results["skipped"] or plan.summary()["failed_sources"] else "ok")

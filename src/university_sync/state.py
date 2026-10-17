@@ -94,6 +94,26 @@ CREATE TABLE IF NOT EXISTS calendar_tasks (
   title TEXT,
   updated_at TEXT
 );
+CREATE TABLE IF NOT EXISTS exams (
+  exam_key TEXT PRIMARY KEY,   -- exam:<course_id>:<YYYY-MM-DD>:<呼び名>
+  course_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  exam_date TEXT NOT NULL,
+  start_time TEXT,             -- HH:MM（本文に無ければ NULL）
+  end_time TEXT,
+  in_class INTEGER NOT NULL,   -- 授業時間に行うと本文に書かれている
+  source TEXT NOT NULL,        -- classroom-announcement:<id> / mail:<candidate_id>
+  evidence TEXT,
+  first_seen_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS class_removals (
+  event_id TEXT PRIMARY KEY,   -- 授業カレンダーから削除した回の予定 ID
+  exam_key TEXT NOT NULL,
+  summary TEXT,
+  start TEXT,
+  end TEXT,
+  removed_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS resource_lists (
   course_id TEXT PRIMARY KEY,
   note_path TEXT NOT NULL,
@@ -395,6 +415,34 @@ class StateStore:
             "ON CONFLICT(task_key) DO UPDATE SET calendar_id=excluded.calendar_id, event_id=excluded.event_id, "
             "fingerprint=excluded.fingerprint, status=excluded.status, title=excluded.title, updated_at=excluded.updated_at",
             (task_key, calendar_id, event_id, fingerprint, status, title, at))
+        self.conn.commit()
+
+    # --- 試験（Phase 6） ---
+    def upsert_exam(self, row: dict) -> None:
+        self._w()
+        cols = list(row)
+        sets = ",".join(f"{c}=COALESCE(excluded.{c}, {c})" for c in cols if c not in ("exam_key", "first_seen_at"))
+        self.conn.execute(f"INSERT INTO exams({','.join(cols)}) VALUES ({','.join('?' * len(cols))}) "
+                          f"ON CONFLICT(exam_key) DO UPDATE SET {sets}", [row[c] for c in cols])
+        self.conn.commit()
+
+    def all_exams(self) -> list[sqlite3.Row]:
+        return self.conn.execute("SELECT * FROM exams ORDER BY exam_date").fetchall()
+
+    def set_exam_time(self, exam_key: str, start: str, end: str) -> None:
+        """授業の時間・本人の予定から決めた時刻を残す（授業の回を消した後も同じ時刻で扱う）。"""
+        self._w()
+        self.conn.execute("UPDATE exams SET start_time=?, end_time=? WHERE exam_key=? AND start_time IS NULL",
+                          (start, end, exam_key))
+        self.conn.commit()
+
+    def class_removal(self, event_id: str) -> sqlite3.Row | None:
+        return self.conn.execute("SELECT * FROM class_removals WHERE event_id=?", (event_id,)).fetchone()
+
+    def add_class_removal(self, event_id: str, exam_key: str, summary: str, start: str, end: str, at: str) -> None:
+        self._w()
+        self.conn.execute("INSERT OR IGNORE INTO class_removals(event_id,exam_key,summary,start,end,removed_at) VALUES (?,?,?,?,?,?)",
+                          (event_id, exam_key, summary, start, end, at))
         self.conn.commit()
 
     # --- Classroom 資料のコピー（Phase 5） ---

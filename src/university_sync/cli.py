@@ -79,6 +79,23 @@ def make_calendar_factory(cfg: Config):
     return factory
 
 
+def make_exam_factory(cfg: Config):
+    """試験日程の部品（締切カレンダー・授業カレンダー・Claude）。締切カレンダー未設定なら None。"""
+    if cfg.source_mode != "google" or not cfg.calendar_id or not cfg.storage_email:
+        return None
+
+    def factory(store):
+        from .gcalendar import GoogleCalendar
+        from .llm import ClaudeCliAdapter
+
+        cal = GoogleCalendar(cfg)
+        class_cal = GoogleCalendar(cfg, cfg.class_calendar_id) if cfg.class_calendar_id else None
+        llm = ClaudeCliAdapter(cfg.llm_model) if cfg.llm_mode == "claude-cli" else None
+        return cal, class_cal, llm
+
+    return factory
+
+
 def cmd_doctor(cfg: Config, args) -> int:
     ok = True
 
@@ -155,7 +172,8 @@ def cmd_run(cfg: Config, args) -> int:
             record_blocked(cfg, str(e))
         raise
     plan, results = run(cfg, collector, dry_run=args.dry_run, mail_factory=make_mail_factory(cfg),
-                        copy_factory=make_copy_factory(cfg), calendar_factory=make_calendar_factory(cfg))
+                        copy_factory=make_copy_factory(cfg), calendar_factory=make_calendar_factory(cfg),
+                        exam_factory=make_exam_factory(cfg))
     label = "dry-run（変更計画のみ。Vault・状態・Google には書き込まない）" if args.dry_run else "同期"
     print(f"■ {label}  {plan.started_at}")
     c = plan.copy
@@ -191,6 +209,20 @@ def cmd_run(cfg: Config, args) -> int:
             print(f"  [{'OK' if k.ok else 'NG'}] 締切カレンダー: 作成 {k.created} 件・更新 {k.updated} 件・削除 {k.removed} 件"
                   + (f"（{k.detail}）" if k.detail else ""))
         for e in k.errors[:5]:
+            print(f"      {e}")
+    x = plan.exams
+    if x is not None:
+        if args.dry_run:
+            print(f"  [{'OK' if x.ok else 'NG'}] 試験日程: 登録予定 {x.calendar.planned['create']} 件・"
+                  f"削除予定の授業の回 {len(x.classes_removed)} 件（お知らせの読み取りは dry-run ではしない）"
+                  + (f"（{x.detail}）" if x.detail else ""))
+        else:
+            print(f"  [{'OK' if x.ok else 'NG'}] 試験日程: 新しく見つけた {x.found} 件・Claude 呼び出し {x.llm_calls} 回・"
+                  f"登録 {x.calendar.created} 件・更新 {x.calendar.updated} 件・授業の回を削除 {len(x.classes_removed)} 件"
+                  + (f"（{x.detail}）" if x.detail else ""))
+        for c in x.classes_removed:
+            print(f"      授業を削除{'予定' if args.dry_run else ''}: {c}")
+        for e in x.errors[:5]:
             print(f"      {e}")
     for s, ok, d in plan.sources:
         print(f"  [{'OK' if ok else 'NG'}] {s}: {d}")
