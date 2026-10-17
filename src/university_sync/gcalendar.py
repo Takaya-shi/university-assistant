@@ -99,7 +99,8 @@ class GoogleCalendar:
         return self._exec(self.events.insert(calendarId=self.calendar_id, body=body), f"作成 {body['summary']}")
 
     def patch(self, event_id: str, body: dict) -> dict:
-        return self._exec(self.events.patch(calendarId=self.calendar_id, eventId=event_id, body=body), f"更新 {body['summary']}")
+        return self._exec(self.events.patch(calendarId=self.calendar_id, eventId=event_id, body=_patch_body(body)),
+                          f"更新 {body['summary']}")
 
     def delete(self, event_id: str) -> None:
         try:
@@ -107,6 +108,19 @@ class GoogleCalendar:
         except CollectorError as e:
             if e.status not in (404, 410):
                 raise
+
+
+def _patch_body(body: dict) -> dict:
+    """patch は項目ごとに上書きするため、終日⇔時刻ありを切り替えるときは使わない側を null で消す。"""
+    out = dict(body)
+    for k in ("start", "end"):
+        t = dict(body[k])
+        if "date" in t:
+            t.update({"dateTime": None, "timeZone": None})
+        else:
+            t["date"] = None
+        out[k] = t
+    return out
 
 
 # ---------------------------------------------------------------- 予定の形
@@ -161,7 +175,7 @@ def desired_event(row, course_name: str, now: datetime | None = None) -> tuple[d
 
 
 def _norm(t: dict) -> str:
-    if "date" in t:
+    if t.get("date"):
         return t["date"]
     return datetime.fromisoformat(t["dateTime"]).astimezone(JST).isoformat()
 

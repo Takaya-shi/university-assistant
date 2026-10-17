@@ -68,8 +68,20 @@ class FakeCalendar:
         return self._store(f"e{len(self.events) + 1}", body)
 
     def patch(self, eid, body):
+        """Google の patch と同じく start / end は項目ごとに上書きし、null の項目は消す。"""
+        from university_sync.gcalendar import _patch_body
         self.calls.append(("patch", eid))
-        merged = dict(self.events[eid]) | body
+        body = _patch_body(body)
+        merged = dict(self.events[eid])
+        for k, v in body.items():
+            if k in ("start", "end"):
+                t = dict(merged.get(k, {})) | v
+                t = {a: b for a, b in t.items() if b is not None}
+                if "date" in t and "dateTime" in t:
+                    raise CollectorError("HTTP 400 Invalid start time.", status=400)
+                merged[k] = t
+            else:
+                merged[k] = v
         return self._store(eid, merged)
 
     def delete(self, eid):
@@ -328,6 +340,16 @@ class ManualTaskTests(unittest.TestCase):
         self.assertEqual((r.created, r.updated, r.removed), (0, 0, 0))
         self.assertEqual(self.cal.calls, [])
 
+    def test_all_day_becomes_timed_when_time_added(self):
+        self.sync()
+        text = MANUAL.replace("時刻のないタスク #university", "時刻のないタスク（〜23:59） #university")
+        r = self.sync(text)
+        self.assertTrue(r.ok, r.errors)
+        ev = self.by_title("時刻のないタスク")
+        self.assertEqual(len(ev), 1)
+        self.assertTrue(ev[0]["end"]["dateTime"].startswith("2026-10-30T23:59"))
+        self.assertNotIn("date", ev[0]["start"])
+
     def test_managed_line_without_school_due_uses_line_date(self):
         run(self.env.cfg, SampleClassroomCollector(self.env.cfg.sample_dir), dry_run=False)
         self.store.close()
@@ -341,6 +363,14 @@ class ManualTaskTests(unittest.TestCase):
         ev = self.by_title("実験レポート提出")[0]
         self.assertEqual(ev["start"], {"date": "2026-10-31"})
         self.assertEqual(ev["extendedProperties"]["private"][TASK_PROP], "aid:" + row["assignment_id"])
+        # 同じ行に時刻を書き足すと、同じ予定のまま終日から時刻ありに変わる（patch で date を消す）
+        r = self.sync(text.replace("--> #university", "--> （〜23:59） #university"))
+        self.assertTrue(r.ok, r.errors)
+        self.assertEqual(r.updated, 1)
+        ev = self.by_title("実験レポート提出")
+        self.assertEqual(len(ev), 1)
+        self.assertTrue(ev[0]["end"]["dateTime"].startswith("2026-10-31T23:59"))
+        self.assertNotIn("date", ev[0]["start"])
 
 
 if __name__ == "__main__":
