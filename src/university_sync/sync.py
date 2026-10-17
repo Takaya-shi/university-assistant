@@ -407,15 +407,16 @@ def _run_copy(cfg: Config, store: StateStore, collector, copy_factory, dry_run: 
     return copy_materials(cfg, store, collector, reader, drive, dry_run=dry_run)
 
 
-def _run_calendar(cfg: Config, store: StateStore, calendar_factory, dry_run: bool):
-    """締切をカレンダーへ反映する段。課題の同期を終えた状態ストアから決める。失敗しても他の同期は残す。"""
+def _run_calendar(cfg: Config, store: StateStore, writer: VaultWriter, calendar_factory, dry_run: bool):
+    """締切をカレンダーへ反映する段。課題の同期を終えた状態ストアと大学タスクのノートから決める。
+    失敗しても他の同期は残す。"""
     from .gcalendar import CalendarReport, sync_calendar
 
     try:
         cal = calendar_factory(store)
     except CollectorError as e:
         return CalendarReport(ok=False, detail=str(e))
-    return sync_calendar(cfg, store, cal, dry_run=dry_run)
+    return sync_calendar(cfg, store, cal, dry_run=dry_run, tasks_text=writer.read(cfg.tasks_note))
 
 
 def run(cfg: Config, collector: ClassroomCollector, *, dry_run: bool, mail_factory=None,
@@ -434,7 +435,7 @@ def run(cfg: Config, collector: ClassroomCollector, *, dry_run: bool, mail_facto
             if mail_factory:
                 plan.mail = _run_mail(cfg, store, mail_factory, dry_run=True)
             if calendar_factory:  # 今回の取得結果を適用する前の状態で数える
-                plan.calendar = _run_calendar(cfg, store, calendar_factory, dry_run=True)
+                plan.calendar = _run_calendar(cfg, store, VaultWriter(guard, None), calendar_factory, dry_run=True)
             return plan, None
         finally:
             store.close()
@@ -469,7 +470,7 @@ def run(cfg: Config, collector: ClassroomCollector, *, dry_run: bool, mail_facto
                     if store.add_notification(eid, kind, aid, msg, iso_now()):
                         results["notifications"].append(msg)
             if calendar_factory and not plan.fetch_failed:
-                c = plan.calendar = _run_calendar(cfg, store, calendar_factory, dry_run=False)
+                c = plan.calendar = _run_calendar(cfg, store, writer, calendar_factory, dry_run=False)
                 store.set_source_status("calendar.deadlines", c.ok, iso_now(),
                                         c.detail or f"作成 {c.created} 件・更新 {c.updated} 件・削除 {c.removed} 件")
                 if not c.ok:

@@ -10,7 +10,7 @@ from test_sync import Env
 
 from university_sync.collectors import CollectorError
 from university_sync.collectors.sample import SampleClassroomCollector
-from university_sync.gcalendar import PROP, desired_event, fingerprint, sync_calendar
+from university_sync.gcalendar import PROP, TASK_PROP, desired_event, fingerprint, sync_calendar, task_items
 from university_sync.state import StateStore
 from university_sync.sync import run
 from university_sync.timeutil import JST
@@ -45,12 +45,21 @@ class FakeCalendar:
         ev = self.events.get(eid)
         return dict(ev) if ev else None
 
-    def find(self, aid):
-        self.calls.append(("find", aid))
+    def find(self, prop, value):
+        self.calls.append(("find", value))
         for ev in self.events.values():
-            if ev.get("extendedProperties", {}).get("private", {}).get(PROP) == aid and ev["status"] != "cancelled":
+            if ev.get("extendedProperties", {}).get("private", {}).get(prop) == value and ev["status"] != "cancelled":
                 return ev
         return None
+
+    def on_day(self, day):
+        self.calls.append(("on_day", str(day)))
+        out = []
+        for ev in self.events.values():
+            d = ev["start"].get("date") or ev["start"]["dateTime"][:10]
+            if d == day.isoformat():
+                out.append(ev)
+        return out
 
     def insert(self, body):
         self.calls.append(("insert", body["summary"]))
@@ -113,7 +122,7 @@ class CalendarTests(unittest.TestCase):
         self.assertTrue(timed)
         ev = timed[0]
         start, end = (datetime.fromisoformat(ev[k]["dateTime"]) for k in ("start", "end"))
-        self.assertEqual((end - start).total_seconds(), 1800)  # 締切の 30 分前〜締切
+        self.assertEqual((end - start).total_seconds(), 3600)  # 締切の 1 時間前〜締切
         self.assertEqual(ev["reminders"]["overrides"], [{"method": "popup", "minutes": 1440}, {"method": "popup", "minutes": 30}])
         self.assertTrue(ev["summary"].startswith("サンプル科目A ") and ev["summary"].endswith(" 締切"))
         self.assertIn("締切時刻：", ev["description"])
@@ -205,7 +214,7 @@ class CalendarTests(unittest.TestCase):
         self.cal.fail_insert = False
         self.assertEqual(self.sync().created, len(self.rows_with_due()))
 
-    def test_date_only_due_is_all_day(self):
+    def test_date_only_due_is_all_day_assignment(self):
         row = self.rows_with_due()[0]
         body, mode = desired_event(dict(row) | {"due_at": "2026-10-20", "due_precision": "date"}, "科目", BEFORE_ALL)
         self.assertEqual(body["start"], {"date": "2026-10-20"})
@@ -233,6 +242,105 @@ class CalendarTests(unittest.TestCase):
                             calendar_factory=broken)
         self.assertFalse(plan.calendar.ok)
         self.assertEqual(results["status"], "partial")
+
+
+MANUAL = """
+- [ ] 基礎プログラミング #02 activity-report・assignment提出（〜23:59・[[資料一覧|資料一覧]]） #university 📅 2026-10-18
+- [ ] 基礎プログラミング #01 assignment late-submission提出（10/26 00:00まで。通常提出済みなら不要） #university 📅 2026-10-25
+- [ ] 確率統計 小テスト第2回提出（講義開始19:30まで・手書き） #university ⏫ 📅 2026-10-21
+- [ ] 確率統計 中間試験（水7限・前半範囲） #university 📅 2026-12-02
+- [ ] 時刻のないタスク #university 📅 2026-10-30
+- [x] 終わったタスク #university 📅 2026-10-28 ✅ 2026-10-17
+- [ ] 締切のないタスク #university
+"""
+
+
+class ManualTaskTests(unittest.TestCase):
+    def setUp(self):
+        self.env = Env()
+        self.env.use("sample_v1", EXTRA)
+        self.cal = FakeCalendar()
+        self.store = StateStore.open(self.env.cfg.state_dir)
+        self.now = datetime(2026, 10, 18, 3, 0, tzinfo=JST)
+
+    def tearDown(self):
+        self.store.close()
+        self.env.cleanup()
+
+    def sync(self, text=MANUAL, now=None):
+        return sync_calendar(self.env.cfg, self.store, self.cal, dry_run=False, now=now or self.now, tasks_text=text)
+
+    def by_title(self, part):
+        return [e for e in self.cal.events.values() if part in e["summary"]]
+
+    def test_times_are_read_from_text(self):
+        items = {i.title: i.due for i in task_items(MANUAL, self.store)}
+        self.assertEqual(items["基礎プログラミング #02 activity-report・assignment提出"], datetime(2026, 10, 18, 23, 59, tzinfo=JST))
+        self.assertEqual(items["基礎プログラミング #01 assignment late-submission提出"], datetime(2026, 10, 26, 0, 0, tzinfo=JST))
+        self.assertEqual(items["確率統計 小テスト第2回提出"], datetime(2026, 10, 21, 19, 30, tzinfo=JST))
+        self.assertEqual(str(items["時刻のないタスク"]), "2026-10-30")
+        self.assertNotIn("締切のないタスク", items)
+
+    def test_creates_open_future_tasks_only(self):
+        r = self.sync()
+        self.assertTrue(r.ok)
+        titles = sorted(e["summary"] for e in self.cal.events.values())
+        self.assertIn("基礎プログラミング #02 activity-report・assignment提出", titles)
+        self.assertNotIn("終わったタスク", " ".join(titles))
+        allday = self.by_title("時刻のないタスク")[0]
+        self.assertEqual(allday["start"], {"date": "2026-10-30"})
+        self.assertTrue(all(e["extendedProperties"]["private"].get(TASK_PROP) for e in self.cal.events.values()))
+
+    def test_existing_manual_event_is_not_duplicated(self):
+        self.cal.events["mine"] = {"id": "mine", "status": "confirmed", "summary": "確率統計 中間試験",
+                                   "start": {"dateTime": "2026-12-02T19:30:00+09:00"}, "end": {"dateTime": "2026-12-02T21:00:00+09:00"}}
+        self.sync()
+        self.assertEqual(len(self.by_title("中間試験")), 1)
+        self.cal.calls.clear()
+        self.sync()
+        self.assertNotIn(("on_day", "2026-12-02"), self.cal.calls)  # 一度「本人の予定あり」と判断したら毎回は探さない
+
+    def test_check_marks_done_and_due_change_moves(self):
+        self.sync()
+        text = MANUAL.replace("- [ ] 基礎プログラミング #02", "- [x] 基礎プログラミング #02")
+        text = text.replace("小テスト第2回提出（講義開始19:30まで・手書き） #university ⏫ 📅 2026-10-21",
+                            "小テスト第2回提出（講義開始19:30まで・手書き） #university ⏫ 📅 2026-10-28")
+        r = self.sync(text)
+        self.assertEqual(r.updated, 2)
+        done = self.by_title("#02")[0]
+        self.assertTrue(done["summary"].startswith("【完了】"))
+        self.assertEqual(done["reminders"]["overrides"], [])
+        self.assertTrue(self.by_title("小テスト")[0]["end"]["dateTime"].startswith("2026-10-28T19:30"))
+
+    def test_removed_or_cancelled_line_deletes_event(self):
+        self.sync()
+        text = MANUAL.replace("- [ ] 時刻のないタスク", "- [-] 時刻のないタスク")
+        text = "\n".join(l for l in text.split("\n") if "#02" not in l)
+        r = self.sync(text)
+        self.assertEqual(r.removed, 2)
+        self.assertEqual(self.by_title("時刻のないタスク"), [])
+        self.assertEqual(self.by_title("#02"), [])
+
+    def test_idempotent(self):
+        self.sync()
+        self.cal.calls.clear()
+        r = self.sync()
+        self.assertEqual((r.created, r.updated, r.removed), (0, 0, 0))
+        self.assertEqual(self.cal.calls, [])
+
+    def test_managed_line_without_school_due_uses_line_date(self):
+        run(self.env.cfg, SampleClassroomCollector(self.env.cfg.sample_dir), dry_run=False)
+        self.store.close()
+        self.store = StateStore.open(self.env.cfg.state_dir)
+        row = self.store.all_assignments()[0]
+        self.store.conn.execute("UPDATE assignments SET due_at=NULL, due_precision='unknown' WHERE assignment_id=?",
+                                (row["assignment_id"],))
+        self.store.conn.commit()
+        text = f"- [ ] 実験レポート提出（締切未設定） [[ノート]] <!-- university-sync:id={row['assignment_id']} --> #university 📅 2026-10-31"
+        self.sync(text)
+        ev = self.by_title("実験レポート提出")[0]
+        self.assertEqual(ev["start"], {"date": "2026-10-31"})
+        self.assertEqual(ev["extendedProperties"]["private"][TASK_PROP], "aid:" + row["assignment_id"])
 
 
 if __name__ == "__main__":

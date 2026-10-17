@@ -85,6 +85,15 @@ CREATE TABLE IF NOT EXISTS calendar_events (
   status TEXT NOT NULL,        -- active / done / removed / user_deleted / user_edited
   updated_at TEXT
 );
+CREATE TABLE IF NOT EXISTS calendar_tasks (
+  task_key TEXT PRIMARY KEY,   -- 手書きのタスク行の指紋（txt:…）か、締切の無い管理課題（aid:…）
+  calendar_id TEXT NOT NULL,
+  event_id TEXT,
+  fingerprint TEXT,
+  status TEXT NOT NULL,        -- active / done / removed / user_deleted / user_edited / external
+  title TEXT,
+  updated_at TEXT
+);
 CREATE TABLE IF NOT EXISTS resource_lists (
   course_id TEXT PRIMARY KEY,
   note_path TEXT NOT NULL,
@@ -370,6 +379,22 @@ class StateStore:
             "ON CONFLICT(assignment_id) DO UPDATE SET calendar_id=excluded.calendar_id, event_id=excluded.event_id, "
             "fingerprint=excluded.fingerprint, status=excluded.status, updated_at=excluded.updated_at",
             (assignment_id, calendar_id, event_id, fingerprint, status, at))
+        self.conn.commit()
+
+    def calendar_task(self, task_key: str) -> sqlite3.Row | None:
+        return self.conn.execute("SELECT * FROM calendar_tasks WHERE task_key=?", (task_key,)).fetchone()
+
+    def calendar_tasks(self) -> list[sqlite3.Row]:
+        return self.conn.execute("SELECT * FROM calendar_tasks").fetchall()
+
+    def set_calendar_task(self, task_key: str, calendar_id: str, event_id: str | None, fingerprint: str | None,
+                          status: str, title: str, at: str) -> None:
+        self._w()
+        self.conn.execute(
+            "INSERT INTO calendar_tasks(task_key,calendar_id,event_id,fingerprint,status,title,updated_at) VALUES (?,?,?,?,?,?,?) "
+            "ON CONFLICT(task_key) DO UPDATE SET calendar_id=excluded.calendar_id, event_id=excluded.event_id, "
+            "fingerprint=excluded.fingerprint, status=excluded.status, title=excluded.title, updated_at=excluded.updated_at",
+            (task_key, calendar_id, event_id, fingerprint, status, title, at))
         self.conn.commit()
 
     # --- Classroom 資料のコピー（Phase 5） ---
