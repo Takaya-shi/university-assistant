@@ -424,6 +424,15 @@ class SlotTests(unittest.TestCase):
         self.assertEqual(len(self.cal.events), n)  # 見込みを作り直さない
         self.assertEqual([c for c, _ in self.cal.calls if c in ("insert", "patch")], [])
 
+    def test_note_change_updates_description(self):
+        self.sync()
+        self.env.use("sample_v1", SLOTS.replace('title = "サンプル科目A レポート（見込み）"',
+                                                'title = "サンプル科目A レポート（見込み）"\nnote = "提出場所：〇〇"'))
+        r = self.sync()
+        self.assertEqual(r.updated, 2)
+        self.assertTrue(all("提出場所：〇〇" in e["description"] for e in self.slot_events()))
+        self.assertEqual(r.reviews, [])  # 説明欄の変更は本人編集とみなさない
+
     def test_slot_removed_from_config_is_deleted(self):
         self.sync()
         self.env.use("sample_v1", SLOTS.replace('"2026-10-28T23:59", ', ""))

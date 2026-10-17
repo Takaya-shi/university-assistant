@@ -190,6 +190,18 @@ def fingerprint(ev: dict) -> str:
     return json.dumps([ev.get("summary", ""), _norm(ev["start"]), _norm(ev["end"])], ensure_ascii=False)
 
 
+def written_mark(body: dict) -> str:
+    """状態ストアに残す「前回書いた内容」。説明欄・通知の変更も反映できるよう指紋に足す。
+    本人編集の判定は件名・開始・終了（先頭の fingerprint 部分）だけで行う。"""
+    extra = hashlib.sha256(json.dumps([body.get("description", ""), body.get("reminders")], ensure_ascii=False,
+                                      sort_keys=True).encode()).hexdigest()[:12]
+    return f"{fingerprint(body)}|{extra}"
+
+
+def _edit_part(mark: str | None) -> str | None:
+    return mark.split("|", 1)[0] if mark else mark
+
+
 def _passed(due: datetime | date, now: datetime) -> bool:
     return due <= now if isinstance(due, datetime) else due < now.date()
 
@@ -402,10 +414,10 @@ def _reconcile(cfg, cal, recs: _Records, report: CalendarReport, *, key: str, la
                 return
             plan["create"] += 1
             ev = cal.patch(existing["id"], body) if existing else cal.insert(body)
-            recs.set(key, cfg.calendar_id, ev["id"], fingerprint(body), mode, label)
+            recs.set(key, cfg.calendar_id, ev["id"], written_mark(body), mode, label)
             report.created += 1
             return
-        if fingerprint(body) == rec["fingerprint"] and mode == rec["status"]:
+        if written_mark(body) == rec["fingerprint"] and mode == rec["status"]:
             return
         plan["update"] += 1
         if dry_run:
@@ -416,13 +428,13 @@ def _reconcile(cfg, cal, recs: _Records, report: CalendarReport, *, key: str, la
             report.reviews.append((f"calendar_deleted:{key}", "カレンダーの予定を本人が削除", key if prop == PROP else None,
                                    f"{label}: 締切の予定が削除されていたので作り直さない（以後この予定は自動で扱わない）"))
             return
-        if fingerprint(ev) != rec["fingerprint"]:
+        if fingerprint(ev) != _edit_part(rec["fingerprint"]):
             recs.set(key, cfg.calendar_id, rec["event_id"], rec["fingerprint"], "user_edited", label)
             report.reviews.append((f"calendar_edited:{key}", "カレンダーの予定を本人が編集", key if prop == PROP else None,
                                    f"{label}: 締切の予定の件名か時刻が手で変えられていたので上書きしない"))
             return
         cal.patch(rec["event_id"], body)
-        recs.set(key, cfg.calendar_id, rec["event_id"], fingerprint(body), mode, label)
+        recs.set(key, cfg.calendar_id, rec["event_id"], written_mark(body), mode, label)
         report.updated += 1
     except CollectorError as e:
         report.errors.append(f"{label}: {e}")
