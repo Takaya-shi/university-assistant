@@ -66,6 +66,19 @@ def make_copy_factory(cfg: Config):
     return factory
 
 
+def make_calendar_factory(cfg: Config):
+    """締切を保存先アカウントのカレンダーへ登録する部品。カレンダー未設定なら None。"""
+    if cfg.source_mode != "google" or not cfg.calendar_id or not cfg.storage_email:
+        return None
+
+    def factory(store):
+        from .gcalendar import GoogleCalendar
+
+        return GoogleCalendar(cfg)
+
+    return factory
+
+
 def cmd_doctor(cfg: Config, args) -> int:
     ok = True
 
@@ -142,7 +155,7 @@ def cmd_run(cfg: Config, args) -> int:
             record_blocked(cfg, str(e))
         raise
     plan, results = run(cfg, collector, dry_run=args.dry_run, mail_factory=make_mail_factory(cfg),
-                        copy_factory=make_copy_factory(cfg))
+                        copy_factory=make_copy_factory(cfg), calendar_factory=make_calendar_factory(cfg))
     label = "dry-run（変更計画のみ。Vault・状態・Google には書き込まない）" if args.dry_run else "同期"
     print(f"■ {label}  {plan.started_at}")
     c = plan.copy
@@ -168,6 +181,17 @@ def cmd_run(cfg: Config, args) -> int:
               + (f"・再試行待ち {m.retry_waiting} 件" if m.retry_waiting else "") + (f"（{m.detail}）" if m.detail else ""))
         for e in m.attachment_errors:
             print(f"      添付の保存失敗: {e}")
+    k = plan.calendar
+    if k is not None:
+        if args.dry_run:
+            p = k.planned
+            print(f"  [{'OK' if k.ok else 'NG'}] 締切カレンダー: 作成予定 {p.get('create', 0)} 件・更新予定 {p.get('update', 0)} 件・"
+                  f"削除予定 {p.get('remove', 0)} 件（今回取得分の適用前の状態で数えた）" + (f"（{k.detail}）" if k.detail else ""))
+        else:
+            print(f"  [{'OK' if k.ok else 'NG'}] 締切カレンダー: 作成 {k.created} 件・更新 {k.updated} 件・削除 {k.removed} 件"
+                  + (f"（{k.detail}）" if k.detail else ""))
+        for e in k.errors[:5]:
+            print(f"      {e}")
     for s, ok, d in plan.sources:
         print(f"  [{'OK' if ok else 'NG'}] {s}: {d}")
     if plan.unmapped_courses:
@@ -261,11 +285,12 @@ def cmd_auth(cfg: Config, args) -> int:
         print("キーチェーンから削除しました" if auth.forget(cfg, args.role) else "保存された資格情報はありません")
         return EXIT_OK
     from .drive import READ_SCOPES as DRIVE_READ_SCOPES
+    from .gcalendar import SCOPES as CALENDAR_SCOPES
 
     if args.role == "school":
         scopes = CLASSROOM_SCOPES + (GMAIL_SCOPES if cfg.sender_domains else []) + (DRIVE_READ_SCOPES if cfg.copy_materials else [])
     else:
-        scopes = DRIVE_SCOPES
+        scopes = DRIVE_SCOPES + (CALENDAR_SCOPES if cfg.calendar_id else [])
     info = auth.authorize(cfg, args.role, scopes)
     print(f"認可済み: {info['email']}（account ID {info['account_id']}）")
     print("許可された権限:")

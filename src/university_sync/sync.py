@@ -49,6 +49,7 @@ class Plan:
     fetch_failed: bool = False
     mail: object = None  # mailsync.MailReport（メール未設定なら None）
     copy: object = None  # materials.CopyReport（資料コピー未設定なら None）
+    calendar: object = None  # gcalendar.CalendarReport（締切カレンダー未設定なら None）
 
     def summary(self) -> dict:
         kinds: dict[str, int] = {}
@@ -406,8 +407,19 @@ def _run_copy(cfg: Config, store: StateStore, collector, copy_factory, dry_run: 
     return copy_materials(cfg, store, collector, reader, drive, dry_run=dry_run)
 
 
+def _run_calendar(cfg: Config, store: StateStore, calendar_factory, dry_run: bool):
+    """締切をカレンダーへ反映する段。課題の同期を終えた状態ストアから決める。失敗しても他の同期は残す。"""
+    from .gcalendar import CalendarReport, sync_calendar
+
+    try:
+        cal = calendar_factory(store)
+    except CollectorError as e:
+        return CalendarReport(ok=False, detail=str(e))
+    return sync_calendar(cfg, store, cal, dry_run=dry_run)
+
+
 def run(cfg: Config, collector: ClassroomCollector, *, dry_run: bool, mail_factory=None,
-        copy_factory=None) -> tuple[Plan, dict | None]:
+        copy_factory=None, calendar_factory=None) -> tuple[Plan, dict | None]:
     if cfg.source_mode == "sample" and not dry_run and not cfg.is_test_vault:
         raise SyncBlocked("サンプル取得元で本番 Vault へは書き込まない。テスト用 Vault（目印ファイル付き）を指定するか --dry-run を使う")
     if cfg.source_mode == "google" and not dry_run and not cfg.write_enabled and not cfg.is_test_vault:
@@ -421,6 +433,8 @@ def run(cfg: Config, collector: ClassroomCollector, *, dry_run: bool, mail_facto
             plan.copy = copy
             if mail_factory:
                 plan.mail = _run_mail(cfg, store, mail_factory, dry_run=True)
+            if calendar_factory:  # 今回の取得結果を適用する前の状態で数える
+                plan.calendar = _run_calendar(cfg, store, calendar_factory, dry_run=True)
             return plan, None
         finally:
             store.close()
@@ -454,6 +468,14 @@ def run(cfg: Config, collector: ClassroomCollector, *, dry_run: bool, mail_facto
                 for eid, kind, aid, msg in m.notifications:
                     if store.add_notification(eid, kind, aid, msg, iso_now()):
                         results["notifications"].append(msg)
+            if calendar_factory and not plan.fetch_failed:
+                c = plan.calendar = _run_calendar(cfg, store, calendar_factory, dry_run=False)
+                store.set_source_status("calendar.deadlines", c.ok, iso_now(),
+                                        c.detail or f"作成 {c.created} 件・更新 {c.updated} 件・削除 {c.removed} 件")
+                if not c.ok:
+                    plan.sources.append(("calendar.deadlines", False, c.detail))
+                for r in c.reviews:
+                    store.add_review(*r, iso_now())
             failed = plan.fetch_failed
             status = "failed" if failed else ("partial" if results["skipped"] or plan.summary()["failed_sources"] else "ok")
             store.finish_run(run_id, iso_now(), status, plan.summary() | {"applied": results["done"], "skipped": results["skipped"]})

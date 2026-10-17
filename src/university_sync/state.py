@@ -77,6 +77,14 @@ CREATE TABLE IF NOT EXISTS material_copies (
   detail TEXT,
   copied_at TEXT
 );
+CREATE TABLE IF NOT EXISTS calendar_events (
+  assignment_id TEXT PRIMARY KEY,
+  calendar_id TEXT NOT NULL,
+  event_id TEXT,
+  fingerprint TEXT,            -- 前回書いた件名・開始・終了（本人編集の検知用）
+  status TEXT NOT NULL,        -- active / done / removed / user_deleted / user_edited
+  updated_at TEXT
+);
 CREATE TABLE IF NOT EXISTS resource_lists (
   course_id TEXT PRIMARY KEY,
   note_path TEXT NOT NULL,
@@ -349,6 +357,20 @@ class StateStore:
 
     def assignment_by_source(self, source_key: str) -> sqlite3.Row | None:
         return self.conn.execute("SELECT * FROM assignments WHERE source_key=?", (source_key,)).fetchone()
+
+    # --- 締切カレンダー（Phase 6） ---
+    def calendar_event(self, assignment_id: str) -> sqlite3.Row | None:
+        return self.conn.execute("SELECT * FROM calendar_events WHERE assignment_id=?", (assignment_id,)).fetchone()
+
+    def set_calendar_event(self, assignment_id: str, calendar_id: str, event_id: str | None, fingerprint: str | None,
+                           status: str, at: str) -> None:
+        self._w()
+        self.conn.execute(
+            "INSERT INTO calendar_events(assignment_id,calendar_id,event_id,fingerprint,status,updated_at) VALUES (?,?,?,?,?,?) "
+            "ON CONFLICT(assignment_id) DO UPDATE SET calendar_id=excluded.calendar_id, event_id=excluded.event_id, "
+            "fingerprint=excluded.fingerprint, status=excluded.status, updated_at=excluded.updated_at",
+            (assignment_id, calendar_id, event_id, fingerprint, status, at))
+        self.conn.commit()
 
     # --- Classroom 資料のコピー（Phase 5） ---
     def material_copy(self, source_id: str) -> sqlite3.Row | None:

@@ -56,6 +56,7 @@ class Config:
     auto_complete_on_turned_in: bool
     write_enabled: bool
     copy_materials: bool
+    calendar_id: str = ""  # 締切を登録する保存先アカウントのカレンダー。空なら登録しない
     raw: dict = field(repr=False, default_factory=dict)
 
     @property
@@ -151,6 +152,7 @@ def load_config(path: Path | None = None) -> Config:
         auto_complete_on_turned_in=sync.get("auto_complete_on_turned_in", True),
         write_enabled=sync.get("write_enabled", False),
         copy_materials=storage.get("copy_classroom_materials", False),
+        calendar_id=storage.get("deadline_calendar_id", ""),
         raw=raw,
     )
 

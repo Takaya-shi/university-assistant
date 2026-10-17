@@ -26,6 +26,7 @@ mail_backend = ""          # "gmail" など。確認してから入れる
 [accounts.storage]
 email = ""                 # 保存先 Drive のアカウントの完全なメールアドレス
 drive_folder_id = ""       # 「大学資料」フォルダの ID
+deadline_calendar_id = ""  # 締切を登録するカレンダーの ID（例: xxxx@group.calendar.google.com）。空なら登録しない。設定後に `university-sync auth storage` を再実行
 
 # 対象授業。`university-sync courses` の結果から選んで追記する
 # [[courses]]
