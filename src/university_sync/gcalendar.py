@@ -15,6 +15,9 @@
   - 締切が消えた・課題や行が消えた・行を取り消し（[-]）にした → 予定を削除する
   - 締切を過ぎてから見つかったもの、完了済みで見つかったもの → 新しく作らない
 - 本人が予定を消した・件名や時刻を変えた場合は、その予定にはもう触れない（要確認へ）。
+  3. 設定（[[calendar_slots]]）に書いた「見込みの締切」。毎週決まった曜日に課題が出る授業向け。
+     Classroom にその授業の課題が出て、締切が見込みの ±3 日以内なら、見込みの予定をその課題の予定に置き換える
+     （予定を作り直さないので重複しない）。
 - 手書きの行は、同じ日に本人が手で入れた同名の予定（例：試験）が既にあれば作らない。
 - 予定には課題 ID（手書きの行は行の指紋）を拡張プロパティで持たせ、状態ストアを失っても重複して作らない。
 - dry-run では API を呼ばず、作成・更新・削除の予定件数だけ数える。
@@ -34,6 +37,8 @@ from .timeutil import JST, iso_now, now_jst
 SCOPES = ["https://www.googleapis.com/auth/calendar.events.owned"]
 PROP = "usync_aid"      # 管理課題の予定に付ける拡張プロパティ
 TASK_PROP = "usync_task"  # 手書きタスク行の予定に付ける拡張プロパティ
+SLOT_PROP = "usync_slot"  # 見込みの締切の予定に付ける拡張プロパティ
+SLOT_WINDOW = 3          # 課題の締切がこの日数以内なら、その見込みの予定を課題の予定に置き換える
 DONE_STATES = ("TURNED_IN", "RETURNED")
 ACTIVE_REMINDERS = [{"method": "popup", "minutes": 1440}, {"method": "popup", "minutes": 30}]
 ALLDAY_REMINDERS = [{"method": "popup", "minutes": 900}]  # 終日の予定は 0:00 起点。前日 9:00
@@ -293,6 +298,59 @@ def _external_same(cal, item: TaskItem) -> bool:
     return False
 
 
+# ---------------------------------------------------------------- 見込みの締切
+
+@dataclass
+class Slot:
+    key: str
+    course_id: str
+    title: str
+    due: datetime
+    note: str
+
+
+def slots_from_config(cfg) -> list[Slot]:
+    out = []
+    for s in cfg.calendar_slots:
+        for d in s.get("deadlines", []):
+            due = datetime.fromisoformat(d)
+            due = due.replace(tzinfo=JST) if due.tzinfo is None else due.astimezone(JST)
+            out.append(Slot(f"slot:{s['course_id']}:{due:%Y-%m-%dT%H:%M}", str(s["course_id"]), s["title"], due,
+                            s.get("note", "")))
+    return out
+
+
+def slot_event(slot: Slot) -> tuple[dict, str]:
+    lines = [slot.note] if slot.note else []
+    lines.append("授業の傾向から入れた見込みの締切。Classroom に課題が出たら、その課題の予定に置き換わる。")
+    return _event_body(slot.title, slot.due, lines, SLOT_PROP, slot.key, False), "active"
+
+
+def _make_adopt(cal, store, cfg, slots: list[Slot], row, report: CalendarReport):
+    """管理課題の締切の近くにある、同じ授業の見込みの予定を探す。見つかれば見込み側を adopted にする。"""
+    due = _row_due(row)
+    if due is None:
+        return None
+    d = due.date() if isinstance(due, datetime) else due
+
+    def adopt():
+        cands = sorted((s for s in slots if s.course_id == row["course_id"] and abs((s.due.date() - d).days) <= SLOT_WINDOW),
+                       key=lambda s: abs((s.due.date() - d).days))
+        for s in cands:
+            rec = store.calendar_task(s.key)
+            if rec is None or rec["status"] not in ("active", "done") or not rec["event_id"]:
+                continue
+            ev = cal.get(rec["event_id"])
+            if ev is None or ev.get("status") == "cancelled":
+                continue
+            store.set_calendar_task(s.key, cfg.calendar_id, rec["event_id"], rec["fingerprint"], "adopted",
+                                    f"{s.title} → {row['title']}", iso_now())
+            return ev
+        return None
+
+    return adopt
+
+
 # ---------------------------------------------------------------- 照合
 
 class _Records:
@@ -312,11 +370,11 @@ class _Records:
 
 
 def _reconcile(cfg, cal, recs: _Records, report: CalendarReport, *, key: str, label: str, want, may_create: bool,
-               prop: str, dry_run: bool, external=None) -> None:
+               prop: str, dry_run: bool, external=None, adopt=None) -> None:
     rec = recs.get(key)
     if rec is not None and rec["calendar_id"] != cfg.calendar_id:
         rec = None  # 登録先のカレンダーを変えた。前のカレンダーの予定には触れない
-    if rec is not None and rec["status"] in ("user_deleted", "user_edited", "external"):
+    if rec is not None and rec["status"] in ("user_deleted", "user_edited", "external", "adopted"):
         return
     live = rec is not None and rec["status"] in ("active", "done") and rec["event_id"]
     plan = report.planned
@@ -337,6 +395,8 @@ def _reconcile(cfg, cal, recs: _Records, report: CalendarReport, *, key: str, la
                 plan["create"] += 1
                 return
             existing = cal.find(prop, key)  # 状態ストアを失った後の再実行でも重複させない
+            if existing is None and adopt is not None:
+                existing = adopt()  # 見込みの締切の予定があれば、それを課題の予定にする
             if existing is None and external is not None and external():
                 recs.set(key, cfg.calendar_id, None, None, "external", label)
                 return
@@ -373,6 +433,7 @@ def sync_calendar(cfg, store, cal, *, dry_run: bool, now: datetime | None = None
     now = now or now_jst()
     report = CalendarReport()
 
+    slots = slots_from_config(cfg)
     recs = _Records(store, "aid")
     for row in store.all_assignments():
         course = cfg.course_by_id(row["course_id"])
@@ -380,7 +441,18 @@ def sync_calendar(cfg, store, cal, *, dry_run: bool, now: datetime | None = None
         due = _row_due(row)
         may = want is not None and want[1] == "active" and not _passed(due, now)
         _reconcile(cfg, cal, recs, report, key=row["assignment_id"], label=row["title"], want=want, may_create=may,
-                   prop=PROP, dry_run=dry_run)
+                   prop=PROP, dry_run=dry_run, adopt=_make_adopt(cal, store, cfg, slots, row, report) if slots else None)
+
+    srecs = _Records(store, "task")
+    slot_keys = set()
+    for slot in slots:
+        slot_keys.add(slot.key)
+        _reconcile(cfg, cal, srecs, report, key=slot.key, label=slot.title, want=slot_event(slot),
+                   may_create=not _passed(slot.due, now), prop=SLOT_PROP, dry_run=dry_run)
+    for rec in store.calendar_tasks():
+        if rec["task_key"].startswith("slot:") and rec["task_key"] not in slot_keys:  # 設定から外した見込み
+            _reconcile(cfg, cal, srecs, report, key=rec["task_key"], label=rec["title"] or rec["task_key"],
+                       want=None, may_create=False, prop=SLOT_PROP, dry_run=dry_run)
 
     if tasks_text is not None:
         trecs = _Records(store, "task")
@@ -392,6 +464,8 @@ def sync_calendar(cfg, store, cal, *, dry_run: bool, now: datetime | None = None
             _reconcile(cfg, cal, trecs, report, key=item.key, label=item.title, want=want, may_create=may,
                        prop=TASK_PROP, dry_run=dry_run, external=lambda item=item: _external_same(cal, item))
         for rec in store.calendar_tasks():
+            if rec["task_key"].startswith("slot:"):
+                continue
             if rec["task_key"] not in current:  # 行が消えた・書き換えられた・学校側に締切が付いた
                 _reconcile(cfg, cal, trecs, report, key=rec["task_key"], label=rec["title"] or rec["task_key"],
                            want=None, may_create=False, prop=TASK_PROP, dry_run=dry_run)

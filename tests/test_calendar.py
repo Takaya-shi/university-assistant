@@ -10,7 +10,7 @@ from test_sync import Env
 
 from university_sync.collectors import CollectorError
 from university_sync.collectors.sample import SampleClassroomCollector
-from university_sync.gcalendar import PROP, TASK_PROP, desired_event, fingerprint, sync_calendar, task_items
+from university_sync.gcalendar import PROP, SLOT_PROP, TASK_PROP, desired_event, fingerprint, sync_calendar, task_items
 from university_sync.state import StateStore
 from university_sync.sync import run
 from university_sync.timeutil import JST
@@ -371,6 +371,65 @@ class ManualTaskTests(unittest.TestCase):
         self.assertEqual(len(ev), 1)
         self.assertTrue(ev[0]["end"]["dateTime"].startswith("2026-10-31T23:59"))
         self.assertNotIn("date", ev[0]["start"])
+
+
+SLOTS = EXTRA + """
+[[calendar_slots]]
+course_id = "100000000001"
+title = "サンプル科目A レポート（見込み）"
+deadlines = ["2026-10-21T23:59", "2026-10-28T23:59", "2026-10-01T23:59"]
+"""
+
+
+class SlotTests(unittest.TestCase):
+    def setUp(self):
+        self.env = Env()
+        self.env.use("sample_v1", SLOTS)
+        self.cal = FakeCalendar()
+        self.now = datetime(2026, 10, 10, 9, 0, tzinfo=JST)
+
+    def tearDown(self):
+        self.env.cleanup()
+
+    def sync(self):
+        store = StateStore.open(self.env.cfg.state_dir)
+        try:
+            return sync_calendar(self.env.cfg, store, self.cal, dry_run=False, now=self.now)
+        finally:
+            store.close()
+
+    def slot_events(self):
+        return [e for e in self.cal.events.values() if SLOT_PROP in e["extendedProperties"]["private"]
+                and PROP not in e["extendedProperties"]["private"]]
+
+    def test_future_slots_created_past_skipped(self):
+        r = self.sync()
+        self.assertEqual(r.created, 2)
+        self.assertEqual(sorted(e["end"]["dateTime"][:10] for e in self.slot_events()), ["2026-10-21", "2026-10-28"])
+        self.assertIn("見込み", self.slot_events()[0]["description"])
+
+    def test_classroom_assignment_takes_over_nearby_slot(self):
+        self.sync()
+        slot_id = next(e["id"] for e in self.slot_events() if e["end"]["dateTime"].startswith("2026-10-21"))
+        run(self.env.cfg, SampleClassroomCollector(self.env.cfg.sample_dir), dry_run=False)  # 10/20 締切の課題が出る
+        self.sync()
+        adopted = self.cal.events[slot_id]  # 同じ予定のまま課題の予定になる
+        self.assertIn(PROP, adopted["extendedProperties"]["private"])
+        self.assertTrue(adopted["end"]["dateTime"].startswith("2026-10-20T23:59"))  # 課題の締切に動いた
+        self.assertNotIn("見込み", adopted["summary"])
+        self.assertEqual([e["end"]["dateTime"][:10] for e in self.slot_events()], ["2026-10-28"])
+        n = len(self.cal.events)
+        self.cal.calls.clear()
+        self.sync()
+        self.assertEqual(len(self.cal.events), n)  # 見込みを作り直さない
+        self.assertEqual([c for c, _ in self.cal.calls if c in ("insert", "patch")], [])
+
+    def test_slot_removed_from_config_is_deleted(self):
+        self.sync()
+        self.env.use("sample_v1", SLOTS.replace('"2026-10-28T23:59", ', ""))
+        r = self.sync()
+        self.assertEqual(r.removed, 1)
+        self.assertEqual([e["end"]["dateTime"][:10] for e in self.slot_events()], ["2026-10-21"])
 
 
 if __name__ == "__main__":

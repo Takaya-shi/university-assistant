@@ -57,6 +57,7 @@ class Config:
     write_enabled: bool
     copy_materials: bool
     calendar_id: str = ""  # 締切を登録する保存先アカウントのカレンダー。空なら登録しない
+    calendar_slots: list = field(default_factory=list)  # 見込みの締切（[[calendar_slots]]）
     raw: dict = field(repr=False, default_factory=dict)
 
     @property
@@ -153,6 +154,7 @@ def load_config(path: Path | None = None) -> Config:
         write_enabled=sync.get("write_enabled", False),
         copy_materials=storage.get("copy_classroom_materials", False),
         calendar_id=storage.get("deadline_calendar_id", ""),
+        calendar_slots=[c for c in raw.get("calendar_slots", []) if c.get("course_id") and c.get("title")],
         raw=raw,
     )
 

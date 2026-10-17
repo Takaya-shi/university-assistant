@@ -36,6 +36,14 @@ deadline_calendar_id = ""  # 締切を登録するカレンダーの ID（例: x
 # vault_dir = ""           # 例: Areas/University/論理回路学（既存フォルダは移動・改名しない）
 # term = ""                # 例: 2026後期
 
+# 見込みの締切。毎週決まった曜日に課題が出る授業向け。先にカレンダーへ入れておき、
+# Classroom に課題が出て締切が ±3 日以内なら、その予定を課題の予定に置き換える（重複させない）
+# [[calendar_slots]]
+# course_id = ""
+# title = ""               # 例: 〇〇 レポート提出（見込み）
+# note = ""                # 予定の説明欄に書く補足
+# deadlines = []           # 例: ["2026-10-23T23:59", "2026-10-30T23:59"]（JST）
+
 [mail]
 # initial_range_days = 30  # 初回取得範囲（日数）。未確定
 query = ""                 # Gmail 検索条件。未確定
